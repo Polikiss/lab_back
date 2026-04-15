@@ -1,0 +1,28 @@
+{
+  "name": "bridge-oracle",
+  "private": true,
+  "version": "3.0.0-simple",
+  "type": "module",
+  "description": "Off-chain oracle: EVM Locked -> in-memory -> Soroban mint (no DB, Render-friendly)",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^15.0.1",
+    "dotenv": "^16.4.7",
+    "ethers": "^6.13.5",
+    "express": "^4.21.2",
+    "pino": "^9.6.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

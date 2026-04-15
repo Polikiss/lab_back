@@ -1,0 +1,12 @@
+# Только оракул (без БД). Скопируйте .env.example → .env.
+#
+#   docker compose up -d --build
+#
+services:
+  oracle:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    restart: unless-stopped
