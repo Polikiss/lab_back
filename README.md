@@ -19,9 +19,20 @@ npm start
 
 ## Деплой (Railway / Render / VPS)
 
+Файл **`.env` в git не коммитится** — на хостинге всё задаётся в **Variables / Environment**.
+
+**Обязательно добавьте хотя бы** (скопируйте из `.env.example`):
+
+| Переменная | Пример (Polkadot Hub testnet) |
+|------------|-------------------------------|
+| **`EVM_RPC_URL`** | `https://eth-rpc-testnet.polkadot.io/` |
+
+Без **`EVM_RPC_URL`** сервис сразу падает с сообщением: *«Задайте EVM_RPC_URL в .env или переменных окружения»*.
+
+Дальше в панели хостинга продублируйте остальное из `.env.example`: `EVM_CHAIN_ID`, `VOTE_TOKEN_ADDRESS`, `STELLAR_*`, `ORACLE_EVM_PRIVATE_KEY` и т.д.
+
 - **Build:** `npm ci && npm run build`
-- **Start:** `npm start`
-- Переменные окружения — как в `.env.example` (секреты только в панели хостинга, не в git).
+- **Start:** `npm start` На Railway/Render порт задаёт платформа (**`PORT`**); локально можно оставить `PORT=8080` в Variables или не задавать — тогда подставится дефолт из кода.
 
 Публичные эндпоинты для интеграции со Stellar:
 
