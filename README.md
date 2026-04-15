@@ -2,7 +2,8 @@
 
 Off-chain oracle: **Polkadot Hub EVM** `ProbeBridgeToken.lock` → **Stellar Soroban** `mint`; обратное направление `POST /mint-from-stellar`.
 
-Исходный код синхронизирован из монорепо [probe-coin](https://github.com/is-dapps-platforms-y26/probe-coin) (каталог `bridge-oracle`).
+Публичный репозиторий бэка: **[github.com/Polikiss/lab_back](https://github.com/Polikiss/lab_back)**.  
+Исходник в монорепо: [probe-coin](https://github.com/is-dapps-platforms-y26/probe-coin) (`bridge-oracle`).
 
 ## Быстрый старт локально
 
