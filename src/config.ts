@@ -27,16 +27,16 @@ export const CONFIG = {
   /**
    * EVM → Stellar: сумма из события Locked (минимальные единицы EVM) делится на этот делитель
    * перед вызовом Soroban mint (и тем же значением — recordBridgedLock, если включён кредит).
-   * По умолчанию 1e9. Отключить масштаб:1
+   * По умолчанию 1e5: 1e-10 ETH (100_000_000 wei) → 1000 единиц Soroban mint. Без масштаба: 1
    */
   EVM_TO_STELLAR_AMOUNT_DIVISOR: (() => {
     const raw = (process.env.EVM_TO_STELLAR_AMOUNT_DIVISOR ?? "").trim();
-    if (raw === "") return 1_000_000_000n;
+    if (raw === "") return 100_000n;
     try {
       const x = BigInt(raw);
-      return x > 0n ? x : 1_000_000_000n;
+      return x > 0n ? x : 100_000n;
     } catch {
-      return 1_000_000_000n;
+      return 100_000n;
     }
   })(),
 
