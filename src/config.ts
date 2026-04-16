@@ -18,11 +18,8 @@ export const CONFIG = {
   ).trim(),
   /** Имя локальной identity в Stellar CLI (как у `stellar contract invoke --source NAME`). */
   STELLAR_ORACLE_SOURCE: (process.env.STELLAR_ORACLE_SOURCE ?? "").trim(),
-  /** Soroban: оракул вызывает `mint` на wrapper-контракте (EVM lock → Stellar). */
-  STELLAR_WRAPPER_CONTRACT_ID: (
-    process.env.STELLAR_WRAPPER_CONTRACT_ID ??
-    "CC76GB4WIXVIXGCC7X7R2SERJQIXWJJSAZMBGU7PAPGGCSGSEC6POQ5P"
-  ).trim(),
+  /** Soroban: оракул вызывает `mint(to, amount)` на этом контракте (wrapper). */
+  STELLAR_WRAPPER_CONTRACT_ID: (process.env.STELLAR_WRAPPER_CONTRACT_ID ?? "").trim(),
 
   /**
    * EVM → Stellar: сумма из события Locked (минимальные единицы EVM) делится на этот делитель
@@ -131,5 +128,8 @@ export function assertConfig(): void {
     throw new Error(
       "Задайте STELLAR_ORACLE_SECRET (S...) или STELLAR_ORACLE_SOURCE (имя identity из stellar CLI)"
     );
+  }
+  if (!CONFIG.STELLAR_WRAPPER_CONTRACT_ID) {
+    throw new Error("Задайте STELLAR_WRAPPER_CONTRACT_ID (Soroban C…, куда слать mint)");
   }
 }

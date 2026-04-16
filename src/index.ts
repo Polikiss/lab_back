@@ -209,6 +209,15 @@ async function sorobanMint(destinationStr: string, amountBn: bigint): Promise<st
       `stellarDestination (получатель mint): ${String((e as Error)?.message ?? e)}`
     );
   }
+  logger.info(
+    {
+      contract: CONFIG.STELLAR_WRAPPER_CONTRACT_ID,
+      oraclePublic: kp.publicKey(),
+      destination: destinationStr.trim(),
+      amount: amountBn.toString()
+    },
+    "[stellar] mint invoke"
+  );
   const op = contract.call(
     "mint",
     dest.toScVal(),
