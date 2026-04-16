@@ -112,8 +112,13 @@ async function rpcGetSorobanTxStatus(
   return status;
 }
 
-function normalizeStellarTxHashForRpc(h: string): string {
-  const x = h.trim().toLowerCase().replace(/^0x/, "");
+function normalizeStellarTxHashForRpc(h: unknown): string {
+  if (typeof h !== "string" && typeof h !== "number" && typeof h !== "bigint") {
+    throw new Error(
+      "stellarTxHash: нужна строка hex (64 символа); нельзя объект/массив/null"
+    );
+  }
+  const x = String(h).trim().toLowerCase().replace(/^0x/, "");
   if (!/^[0-9a-f]{64}$/.test(x)) {
     throw new Error(
       "stellarTxHash: нужен 64 hex-символа (32 байта), хеш Soroban-транзакции"
@@ -122,7 +127,7 @@ function normalizeStellarTxHashForRpc(h: string): string {
   return x;
 }
 
-function normalizeStellarTxHash0x(h: string): string {
+function normalizeStellarTxHash0x(h: unknown): string {
   return `0x${normalizeStellarTxHashForRpc(h)}`;
 }
 
@@ -201,9 +206,15 @@ async function sorobanMint(destinationStr: string, amountBn: bigint): Promise<st
     throw new Error("Amount does not fit i128 (Soroban)");
   }
 
+  const destRaw =
+    typeof destinationStr === "string"
+      ? destinationStr
+      : destinationStr == null
+        ? ""
+        : String(destinationStr);
   let dest: StellarSdk.Address;
   try {
-    dest = new StellarSdk.Address(destinationStr.trim());
+    dest = new StellarSdk.Address(destRaw.trim());
   } catch (e: unknown) {
     throw new Error(
       `stellarDestination (получатель mint): ${String((e as Error)?.message ?? e)}`
@@ -213,7 +224,7 @@ async function sorobanMint(destinationStr: string, amountBn: bigint): Promise<st
     {
       contract: CONFIG.STELLAR_WRAPPER_CONTRACT_ID,
       oraclePublic: kp.publicKey(),
-      destination: destinationStr.trim(),
+      destination: destRaw.trim(),
       amount: amountBn.toString()
     },
     "[stellar] mint invoke"
@@ -569,8 +580,12 @@ async function main(): Promise<void> {
         return;
       }
       const { stellarTxHash, evmRecipient, amount: amountRaw } = req.body ?? {};
-      if (!stellarTxHash || !evmRecipient || amountRaw == null) {
+      if (stellarTxHash == null || evmRecipient == null || amountRaw == null) {
         res.status(400).json({ error: "need stellarTxHash, evmRecipient, amount" });
+        return;
+      }
+      if (typeof evmRecipient !== "string") {
+        res.status(400).json({ error: "evmRecipient must be a string (0x…)" });
         return;
       }
       let stellar0x: string;
@@ -656,11 +671,16 @@ async function main(): Promise<void> {
   app.post("/replay-mint", async (req, res) => {
     try {
       const { txHash, stellarDestination, amount } = req.body ?? {};
-      if (!txHash || !stellarDestination || amount == null) {
+      if (txHash == null || stellarDestination == null || amount == null) {
         res.status(400).json({ error: "need txHash, stellarDestination, amount" });
         return;
       }
-      const receipt = await provider.getTransactionReceipt(txHash);
+      if (typeof stellarDestination !== "string") {
+        res.status(400).json({ error: "stellarDestination must be a string (G…)" });
+        return;
+      }
+      const txHashStr = typeof txHash === "string" ? txHash.trim() : String(txHash);
+      const receipt = await provider.getTransactionReceipt(txHashStr);
       if (!receipt) {
         res.status(404).json({ error: "receipt not found" });
         return;
@@ -687,7 +707,7 @@ async function main(): Promise<void> {
         return;
       }
 
-      const existing = store.findByEvmKey(txHash, logIndex);
+      const existing = store.findByEvmKey(txHashStr, logIndex);
 
       if (existing) {
         await processTask(existing.id, provider);
@@ -697,7 +717,7 @@ async function main(): Promise<void> {
       }
 
       const task = store.create({
-        evmTxHash: txHash,
+        evmTxHash: txHashStr,
         logIndex,
         user: String(parsed.args[0]),
         amount: parsed.args[1].toString(),

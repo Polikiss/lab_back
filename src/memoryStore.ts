@@ -107,7 +107,7 @@ export interface ReverseMintRecord {
 }
 
 function stellarKey(h: string): string {
-  return h.trim().toLowerCase();
+  return String(h ?? "").trim().toLowerCase();
 }
 
 export class ReverseMintStore {
