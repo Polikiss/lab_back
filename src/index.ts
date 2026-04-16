@@ -25,6 +25,94 @@ const VOTE_TOKEN_WITH_EVM_MINT_ABI = [
   "function mintFromStellar(address to, uint256 amount, bytes32 stellarLockId) external"
 ];
 
+const VOTE_TOKEN_DECIMALS_ABI = ["function decimals() view returns (uint8)"];
+
+let voteTokenDecimalsCache: number | null = null;
+
+async function getVoteTokenDecimals(provider: ethers.JsonRpcProvider): Promise<number> {
+  if (voteTokenDecimalsCache != null) return voteTokenDecimalsCache;
+  const c = new ethers.Contract(
+    CONFIG.VOTE_TOKEN_ADDRESS,
+    VOTE_TOKEN_DECIMALS_ABI,
+    provider
+  );
+  const d: bigint = await c.decimals();
+  const n = Number(d);
+  if (!Number.isInteger(n) || n < 0 || n > 36) {
+    throw new Error(`VOTE_TOKEN decimals() invalid: ${String(d)}`);
+  }
+  voteTokenDecimalsCache = n;
+  return n;
+}
+
+/**
+ * POST /mint-from-stellar: либо сырой wei (REVERSE_MINT_AMOUNT_IN_WEI), либо человеческие единицы (parseUnits).
+ */
+function parseReverseMintAmountToWei(
+  raw: unknown,
+  tokenDecimals: number,
+  amountInWei: boolean
+): bigint {
+  if (amountInWei) {
+    let s: string;
+    if (typeof raw === "bigint") {
+      s = raw.toString();
+    } else if (typeof raw === "number") {
+      if (!Number.isFinite(raw) || !Number.isInteger(raw) || raw <= 0) {
+        throw new Error("amount (wei): нужно целое число > 0; большие значения передавайте строкой");
+      }
+      s = String(raw);
+    } else if (typeof raw === "string") {
+      s = raw.trim();
+    } else {
+      throw new Error("invalid amount type for wei mode");
+    }
+    if (!s) {
+      throw new Error("amount must be > 0");
+    }
+    let x: bigint;
+    try {
+      x = BigInt(s);
+    } catch {
+      throw new Error("invalid amount (wei integer expected)");
+    }
+    if (x <= 0n) {
+      throw new Error("amount must be > 0");
+    }
+    return x;
+  }
+
+  if (raw == null) {
+    throw new Error("amount is required");
+  }
+  let s: string;
+  if (typeof raw === "string") {
+    s = raw.trim();
+  } else if (typeof raw === "number") {
+    if (!Number.isFinite(raw) || raw <= 0) {
+      throw new Error("amount must be > 0");
+    }
+    s = String(raw);
+  } else {
+    throw new Error(
+      'invalid amount: ожидается строка или число в единицах токена (например 1 или "0.5")'
+    );
+  }
+  if (!s) {
+    throw new Error("amount must be > 0");
+  }
+  let wei: bigint;
+  try {
+    wei = ethers.parseUnits(s, tokenDecimals);
+  } catch (e: unknown) {
+    throw new Error(`invalid amount: ${String((e as Error)?.message ?? e)}`);
+  }
+  if (wei <= 0n) {
+    throw new Error("amount must be > 0");
+  }
+  return wei;
+}
+
 const BRIDGE_CREDIT_ABI = [
   "function recordBridgedLock(address user, uint256 amount, bytes32 lockId)"
 ];
@@ -206,6 +294,48 @@ async function waitSorobanTxSuccess(rpcUrl: string, stellarTxHash0x: string): Pr
     }
     await new Promise((r) => setTimeout(r, 1500));
   }
+}
+
+/** Полный объект `result` из Soroban RPC `getTransaction` (для GET /stellar/tx). */
+async function rpcGetSorobanTransactionResult(
+  rpcUrl: string,
+  hashHexNo0x: string
+): Promise<Record<string, unknown>> {
+  const candidates = [hashHexNo0x, `0x${hashHexNo0x}`];
+  let lastMissing: string | null = null;
+  for (const hash of candidates) {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getTransaction",
+        params: { hash }
+      })
+    });
+    const json: unknown = await res.json();
+    const j = json as { error?: { message?: string }; result?: Record<string, unknown> };
+    if (j.error) {
+      const m = j.error.message ?? "";
+      if (/not found|NOT_FOUND|Missing|missing/i.test(m)) {
+        lastMissing = m || JSON.stringify(j.error);
+        continue;
+      }
+      throw new Error(`Soroban RPC getTransaction: ${m || JSON.stringify(j.error)}`);
+    }
+    if (j.result && typeof j.result === "object") {
+      return j.result;
+    }
+    throw new Error(
+      `Soroban RPC getTransaction: нет result: ${JSON.stringify(json).slice(0, 400)}`
+    );
+  }
+  throw new Error(
+    lastMissing
+      ? `Soroban tx не найдена: ${lastMissing}`
+      : "Soroban tx не найдена (getTransaction)"
+  );
 }
 
 /** Только статус tx из Soroban RPC без разбора XDR (избегаем рассинхрона stellar-base с новыми вариантами union в meta). */
@@ -596,13 +726,56 @@ async function main(): Promise<void> {
       bridgeVoteCreditEnabled: isBridgeVoteCreditEnabled(),
       evmToStellarAmountDivisor: CONFIG.EVM_TO_STELLAR_AMOUNT_DIVISOR.toString(),
       reverseEvmMintEnabled: isReverseEvmMintEnabled(),
+      reverseMintAmountUnit: CONFIG.REVERSE_MINT_AMOUNT_IN_WEI ? "wei" : "human",
       directions: {
         evmToStellar:
           "Locked on ProbeBridgeToken → Soroban mint на STELLAR_WRAPPER_CONTRACT_ID (poll + replay-mint)",
         stellarToEvm:
-          "POST /mint-from-stellar after Stellar lock tx SUCCESS → ProbeBridgeToken.mintFromStellar"
+          "POST /mint-from-stellar after Stellar lock tx SUCCESS → ProbeBridgeToken.mintFromStellar",
+        stellarLedgerTx:
+          "GET /stellar/tx/:stellarTxHash — полный getTransaction с Soroban RPC (?slim=1 без тяжёлых XDR)"
       }
     });
+  });
+
+  /** Детали Soroban-транзакции по хешу (как в RPC getTransaction). */
+  app.get("/stellar/tx/:stellarTxHash", async (req, res) => {
+    try {
+      const raw = normalizeStellarTxHashForRpc(req.params.stellarTxHash);
+      const result = await rpcGetSorobanTransactionResult(CONFIG.STELLAR_RPC_URL, raw);
+      const slim =
+        req.query.slim === "1" ||
+        req.query.slim === "true" ||
+        req.query.slim === "yes";
+      if (slim) {
+        const {
+          envelopeXdr: _e,
+          resultXdr: _r,
+          resultMetaXdr: _m,
+          ...rest
+        } = result;
+        res.json({
+          ok: true,
+          rpc: CONFIG.STELLAR_RPC_URL,
+          slim: true,
+          omittedFields: ["envelopeXdr", "resultXdr", "resultMetaXdr"],
+          result: rest
+        });
+        return;
+      }
+      res.json({ ok: true, rpc: CONFIG.STELLAR_RPC_URL, result });
+    } catch (e) {
+      const msg = String((e as Error).message ?? e);
+      if (/не найдена|not found|NOT_FOUND|Missing|missing/i.test(msg)) {
+        res.status(404).json({ ok: false, error: msg });
+        return;
+      }
+      if (msg.startsWith("stellarTxHash:")) {
+        res.status(400).json({ ok: false, error: msg });
+        return;
+      }
+      res.status(502).json({ ok: false, error: msg });
+    }
   });
 
   app.get("/status/:evmTxHash", (req, res) => {
@@ -623,6 +796,7 @@ async function main(): Promise<void> {
   /**
    * Второе направление моста: после успешного lock на Stellar — минт ProbeBridgeToken на EVM.
    * stellarLockId в контракте = bytes32(нормализованный хеш Soroban tx).
+   * amount: по умолчанию в «человеческих» единицах токена (1 → 1 wpro при decimals=18); wei — REVERSE_MINT_AMOUNT_IN_WEI=true.
    */
   app.post("/mint-from-stellar", async (req, res) => {
     try {
@@ -658,13 +832,16 @@ async function main(): Promise<void> {
       }
       let amount: bigint;
       try {
-        amount = BigInt(amountRaw);
-      } catch {
-        res.status(400).json({ error: "invalid amount" });
-        return;
-      }
-      if (amount <= 0n) {
-        res.status(400).json({ error: "amount must be > 0" });
+        const tokenDecimals = CONFIG.REVERSE_MINT_AMOUNT_IN_WEI
+          ? 0
+          : await getVoteTokenDecimals(provider);
+        amount = parseReverseMintAmountToWei(
+          amountRaw,
+          tokenDecimals,
+          CONFIG.REVERSE_MINT_AMOUNT_IN_WEI
+        );
+      } catch (e: unknown) {
+        res.status(400).json({ error: String((e as Error).message ?? e) });
         return;
       }
       const amountStr = amount.toString();

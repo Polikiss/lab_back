@@ -51,6 +51,15 @@ export const CONFIG = {
     return true;
   })(),
 
+  /**
+   * POST /mint-from-stellar: `amount` в минимальных единицах ERC20 (wei), без умножения на 10**decimals.
+   * По умолчанию false — `amount` в «человеческих» единицах токена (1 = 1 wpro при decimals=18).
+   */
+  REVERSE_MINT_AMOUNT_IN_WEI: (() => {
+    const v = (process.env.REVERSE_MINT_AMOUNT_IN_WEI ?? "").trim().toLowerCase();
+    return v === "1" || v === "true" || v === "yes" || v === "on";
+  })(),
+
   PORT: Number(process.env.PORT ?? process.env.ORACLE_HTTP_PORT ?? "8080")
 };
 
