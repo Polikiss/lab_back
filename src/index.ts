@@ -68,7 +68,19 @@ async function recordBridgedVoteCredit(
 let oracleMintKeypair: StellarSdk.Keypair | null = null;
 function getOracleMintKeypair(): StellarSdk.Keypair {
   if (!oracleMintKeypair) {
-    oracleMintKeypair = StellarSdk.Keypair.fromSecret(resolveStellarOracleSecret());
+    const raw = resolveStellarOracleSecret().trim();
+    try {
+      oracleMintKeypair = StellarSdk.Keypair.fromSecret(raw);
+    } catch (e: unknown) {
+      const base = String((e as Error)?.message ?? e);
+      const hint =
+        /invalid encoded string/i.test(base) && !CONFIG.STELLAR_ORACLE_SOURCE
+          ? " Проверьте STELLAR_ORACLE_SECRET: один корректный S-ключ (56 символов после S), без кавычек, пробелов и переносов строк в Variables."
+          : CONFIG.STELLAR_ORACLE_SOURCE
+            ? " Проверьте STELLAR_ORACLE_SOURCE / вывод stellar keys show."
+            : "";
+      throw new Error(`${base}${hint}`);
+    }
   }
   return oracleMintKeypair;
 }
@@ -173,7 +185,14 @@ async function sorobanMint(destinationStr: string, amountBn: bigint): Promise<st
   const kp = getOracleMintKeypair();
   const server = new StellarSdk.rpc.Server(CONFIG.STELLAR_RPC_URL);
   const source = await server.getAccount(kp.publicKey());
-  const contract = new StellarSdk.Contract(CONFIG.STELLAR_WVOTE_CONTRACT_ID);
+  let contract: StellarSdk.Contract;
+  try {
+    contract = new StellarSdk.Contract(CONFIG.STELLAR_WRAPPER_CONTRACT_ID);
+  } catch (e: unknown) {
+    throw new Error(
+      `STELLAR_WRAPPER_CONTRACT_ID: ${String((e as Error)?.message ?? e)}`
+    );
+  }
 
   if (
     amountBn > BigInt("170141183460469231731687303715884105727") ||
@@ -182,7 +201,14 @@ async function sorobanMint(destinationStr: string, amountBn: bigint): Promise<st
     throw new Error("Amount does not fit i128 (Soroban)");
   }
 
-  const dest = new StellarSdk.Address(destinationStr);
+  let dest: StellarSdk.Address;
+  try {
+    dest = new StellarSdk.Address(destinationStr.trim());
+  } catch (e: unknown) {
+    throw new Error(
+      `stellarDestination (получатель mint): ${String((e as Error)?.message ?? e)}`
+    );
+  }
   const op = contract.call(
     "mint",
     dest.toScVal(),
@@ -490,15 +516,15 @@ async function main(): Promise<void> {
     res.json({
       ok: true,
       evmVoteToken: tokenAddr,
-      stellarWrapper: CONFIG.STELLAR_WRAPPER_CONTRACT_ID,
-      stellarMint: CONFIG.STELLAR_WVOTE_CONTRACT_ID,
+      stellarMint: CONFIG.STELLAR_WRAPPER_CONTRACT_ID,
       stellarOracleSigner: CONFIG.STELLAR_ORACLE_SOURCE || "env:STELLAR_ORACLE_SECRET",
       bridgeVoteCredit: CONFIG.BRIDGE_VOTE_CREDIT_ADDRESS || null,
       bridgeVoteCreditEnabled: isBridgeVoteCreditEnabled(),
       evmToStellarAmountDivisor: CONFIG.EVM_TO_STELLAR_AMOUNT_DIVISOR.toString(),
       reverseEvmMintEnabled: isReverseEvmMintEnabled(),
       directions: {
-        evmToStellar: "Locked on ProbeBridgeToken → Soroban mint (poll + replay-mint)",
+        evmToStellar:
+          "Locked on ProbeBridgeToken → Soroban mint на STELLAR_WRAPPER_CONTRACT_ID (poll + replay-mint)",
         stellarToEvm:
           "POST /mint-from-stellar after Stellar lock tx SUCCESS → ProbeBridgeToken.mintFromStellar"
       }

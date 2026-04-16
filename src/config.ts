@@ -13,16 +13,16 @@ export const CONFIG = {
   STELLAR_NETWORK_PASSPHRASE:
     process.env.STELLAR_NETWORK_PASSPHRASE ??
     "Test SDF Network ; September 2015",
-  STELLAR_ORACLE_SECRET:
-    process.env.STELLAR_ORACLE_SECRET ?? "SDEMO_REPLACE_WITH_REAL_SECRET",
+  STELLAR_ORACLE_SECRET: (
+    process.env.STELLAR_ORACLE_SECRET ?? "SDEMO_REPLACE_WITH_REAL_SECRET"
+  ).trim(),
   /** Имя локальной identity в Stellar CLI (как у `stellar contract invoke --source NAME`). */
   STELLAR_ORACLE_SOURCE: (process.env.STELLAR_ORACLE_SOURCE ?? "").trim(),
-  STELLAR_WRAPPER_CONTRACT_ID:
+  /** Soroban: оракул вызывает `mint` на wrapper-контракте (EVM lock → Stellar). */
+  STELLAR_WRAPPER_CONTRACT_ID: (
     process.env.STELLAR_WRAPPER_CONTRACT_ID ??
-    "CC76GB4WIXVIXGCC7X7R2SERJQIXWJJSAZMBGU7PAPGGCSGSEC6POQ5P",
-  STELLAR_WVOTE_CONTRACT_ID:
-    process.env.STELLAR_WVOTE_CONTRACT_ID ??
-    "CDMPMBGFKGAFXJ3QKRHAGADIGPUHHEONTJJ6MDAT5F4LLHYQWXVSDIXK",
+    "CC76GB4WIXVIXGCC7X7R2SERJQIXWJJSAZMBGU7PAPGGCSGSEC6POQ5P"
+  ).trim(),
 
   /**
    * EVM → Stellar: сумма из события Locked (минимальные единицы EVM) делится на этот делитель
@@ -76,7 +76,7 @@ export function resolveStellarOracleSecret(): string {
         stdio: ["ignore", "pipe", "pipe"]
       }).trim();
       const m = out.match(SECRET_RE);
-      if (m) return m[1];
+      if (m) return m[1].trim();
     } catch {
       /* try next */
     }
