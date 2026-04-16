@@ -112,16 +112,70 @@ async function rpcGetSorobanTxStatus(
   return status;
 }
 
-function normalizeStellarTxHashForRpc(h: unknown): string {
-  if (typeof h !== "string" && typeof h !== "number" && typeof h !== "bigint") {
+/** Усечённое представление значения для текста 400-ошибки (без утечки гигантских тел). */
+function summarizeStellarTxHashInput(h: unknown): string {
+  if (h === undefined) return "undefined";
+  if (h === null) return "null";
+  if (typeof h === "string") {
+    const n = h.length;
+    const s = n > 160 ? `${h.slice(0, 160)}…` : h;
+    return `string(len=${n}): ${JSON.stringify(s)}`;
+  }
+  if (typeof h === "number" || typeof h === "bigint") {
+    return `${typeof h}: ${String(h)}`;
+  }
+  if (typeof h === "function") return `function ${h.name || "(anonymous)"}`;
+  if (Array.isArray(h)) {
+    return `array(len=${h.length})`;
+  }
+  try {
+    const j = JSON.stringify(h, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+    return j.length > 500 ? `${j.slice(0, 500)}…` : j;
+  } catch {
+    return String(h).slice(0, 200);
+  }
+}
+
+/**
+ * Клиенты часто кладут в body весь json ответа sendTransaction / LAB, а не строку.
+ * Принимаем строку | число | bigint или объект с hash / stellarTxHash / txHash / id.
+ */
+function unwrapStellarTxHashInput(h: unknown): string | number | bigint {
+  const got = summarizeStellarTxHashInput(h);
+  if (h == null) {
+    throw new Error(`stellarTxHash: пустое значение (null/undefined). Получено: ${got}`);
+  }
+  if (typeof h === "string" || typeof h === "number" || typeof h === "bigint") {
+    return h;
+  }
+  if (Array.isArray(h)) {
     throw new Error(
-      "stellarTxHash: нужна строка hex (64 символа); нельзя объект/массив/null"
+      `stellarTxHash: нельзя массив; передайте строку или { "hash": "..." } из ответа Soroban. Получено: ${got}`
     );
   }
-  const x = String(h).trim().toLowerCase().replace(/^0x/, "");
-  if (!/^[0-9a-f]{64}$/.test(x)) {
+  if (typeof h === "object") {
+    const o = h as Record<string, unknown>;
+    for (const k of ["hash", "stellarTxHash", "txHash", "transactionHash", "id"]) {
+      const v = o[k];
+      if (typeof v === "string" || typeof v === "number" || typeof v === "bigint") {
+        return v;
+      }
+    }
     throw new Error(
-      "stellarTxHash: нужен 64 hex-символа (32 байта), хеш Soroban-транзакции"
+      `stellarTxHash: ожидается строка из 64 hex или объект с полем hash (ответ sendTransaction). Получено: ${got}`
+    );
+  }
+  throw new Error(`stellarTxHash: неверный тип. Получено: ${got}`);
+}
+
+function normalizeStellarTxHashForRpc(h: unknown): string {
+  const primitive = unwrapStellarTxHashInput(h);
+  const x = String(primitive).trim().toLowerCase().replace(/^0x/, "");
+  if (!/^[0-9a-f]{64}$/.test(x)) {
+    const rawShow =
+      x.length > 120 ? `${x.slice(0, 120)}…` : x || "(пусто после trim)";
+    throw new Error(
+      `stellarTxHash: нужен 64 hex-символа (32 байта), хеш Soroban-транзакции. После нормализации: ${JSON.stringify(rawShow)}; исходный ввод: ${summarizeStellarTxHashInput(h)}`
     );
   }
   return x;
