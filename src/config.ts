@@ -37,6 +37,21 @@ export const CONFIG = {
     }
   })(),
 
+  /**
+   * Stellar → EVM (mintFromStellar): после parseReverseMintAmountToWei сумма делится на этот делитель.
+   * Пример: 5e18 wei → при divisor 1e10 на контракт уйдёт 5e8. По умолчанию 1 (без деления).
+   */
+  STELLAR_TO_EVM_AMOUNT_DIVISOR: (() => {
+    const raw = (process.env.STELLAR_TO_EVM_AMOUNT_DIVISOR ?? "").trim();
+    if (raw === "") return 1n;
+    try {
+      const x = BigInt(raw);
+      return x > 0n ? x : 1n;
+    } catch {
+      return 1n;
+    }
+  })(),
+
   /** EVM: после mint на Stellar оракул зачисляет кредит голоса (опционально). */
   BRIDGE_VOTE_CREDIT_ADDRESS: (process.env.BRIDGE_VOTE_CREDIT_ADDRESS ?? "").trim(),
   ORACLE_EVM_PRIVATE_KEY: (process.env.ORACLE_EVM_PRIVATE_KEY ?? "").trim(),
@@ -117,6 +132,13 @@ export function stellarMintAmountFromEvmLock(evmLockedMinimal: bigint): bigint {
   const d = CONFIG.EVM_TO_STELLAR_AMOUNT_DIVISOR;
   if (d === 1n) return evmLockedMinimal;
   return evmLockedMinimal / d;
+}
+
+/** Wei после parseReverseMintAmountToWei → аргумент amount для mintFromStellar (целочисленное деление). */
+export function evmMintAmountFromStellarRequest(amountWei: bigint): bigint {
+  const d = CONFIG.STELLAR_TO_EVM_AMOUNT_DIVISOR;
+  if (d === 1n) return amountWei;
+  return amountWei / d;
 }
 
 export function assertConfig(): void {

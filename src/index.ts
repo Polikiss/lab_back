@@ -5,6 +5,7 @@ import pino from "pino";
 import {
   CONFIG,
   assertConfig,
+  evmMintAmountFromStellarRequest,
   isBridgeVoteCreditEnabled,
   isReverseEvmMintEnabled,
   resolveStellarOracleSecret,
@@ -547,7 +548,22 @@ async function processReverseMintTask(
       wallet
     );
     const lockId = task.stellarTxHash as `0x${string}`;
-    const tx = await token.mintFromStellar(task.evmRecipient, task.amount, lockId);
+    const mintAmount = evmMintAmountFromStellarRequest(BigInt(task.amount));
+    if (mintAmount <= 0n) {
+      throw new Error(
+        `После STELLAR_TO_EVM_AMOUNT_DIVISOR сумма минта 0 (amount=${task.amount}, divisor=${CONFIG.STELLAR_TO_EVM_AMOUNT_DIVISOR})`
+      );
+    }
+    logger.info(
+      {
+        taskId,
+        amountRaw: task.amount,
+        mintAmount: mintAmount.toString(),
+        divisor: CONFIG.STELLAR_TO_EVM_AMOUNT_DIVISOR.toString()
+      },
+      "[reverse] mint amount scale"
+    );
+    const tx = await token.mintFromStellar(task.evmRecipient, mintAmount, lockId);
     const receipt = await tx.wait();
     const evmHash = receipt?.hash ?? null;
     reverseStore.update(taskId, {
@@ -725,6 +741,7 @@ async function main(): Promise<void> {
       bridgeVoteCredit: CONFIG.BRIDGE_VOTE_CREDIT_ADDRESS || null,
       bridgeVoteCreditEnabled: isBridgeVoteCreditEnabled(),
       evmToStellarAmountDivisor: CONFIG.EVM_TO_STELLAR_AMOUNT_DIVISOR.toString(),
+      stellarToEvmAmountDivisor: CONFIG.STELLAR_TO_EVM_AMOUNT_DIVISOR.toString(),
       reverseEvmMintEnabled: isReverseEvmMintEnabled(),
       reverseMintAmountUnit: CONFIG.REVERSE_MINT_AMOUNT_IN_WEI ? "wei" : "human",
       directions: {
@@ -828,6 +845,13 @@ async function main(): Promise<void> {
         recipient = ethers.getAddress(evmRecipient);
       } catch {
         res.status(400).json({ error: "invalid evmRecipient" });
+        return;
+      }
+      if (recipient.toLowerCase() === ethers.getAddress(CONFIG.VOTE_TOKEN_ADDRESS).toLowerCase()) {
+        res.status(400).json({
+          error:
+            "evmRecipient должен быть EVM-кошельком пользователя, не адресом контракта ProbeBridgeToken (VOTE_TOKEN_ADDRESS)"
+        });
         return;
       }
       let amount: bigint;
